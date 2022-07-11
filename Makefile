@@ -1,4 +1,4 @@
 targ:
-	g++ node.cpp -lpthread -lcrypto -o node
+	g++ -std=c++17 node.cpp -lpthread -lcrypto -o node
 clean:
 	rm node

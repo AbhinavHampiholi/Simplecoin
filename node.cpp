@@ -46,58 +46,14 @@
 
 
 #define SA struct sockaddr 
-#define  MAX 1000
+#define  MAX 4086
 using namespace std;
 using json = nlohmann::json;
 
 vector <blockchain::node> known_peers;
-
-void listener_func(int sockfd){
-    struct sockaddr_in cli;
-    socklen_t len = sizeof(cli);
-    char buffComm[MAX];
-    while(1){
-        bzero(buffComm, MAX); 
-        int connfd = accept(sockfd, (SA*)&cli, &len); 
-        if (connfd < 0) { 
-            printf("Server accept failed...\n"); 
-            exit(0); 
-        }  
-		read(connfd, buffComm, sizeof(buffComm));
-        // getsockname(sockfd, (SA*)&cli, &len); 
-        printf("[%d] : %s> ",(int) cli.sin_port, buffComm);
-        // break;
-    }
-
-}
-
-void sendTo(string ip, int port, char *data){
-    char ip_char[MAX];
-    char data_char[MAX];
-    strcpy(ip_char, ip.c_str());
-    strcpy(data_char, data);
-    int sockfd = socket(AF_INET, SOCK_STREAM, 0); 
-	if (sockfd == -1) { 
-		printf("Socket creation failed...\n"); 
-		exit(0); 
-	} 
-
-	// assign IP, PORT 
-    struct sockaddr_in servaddr;
-	bzero(&servaddr, sizeof(servaddr)); 
-
-	servaddr.sin_family = AF_INET; 
-	servaddr.sin_addr.s_addr = inet_addr(ip_char); 
-	servaddr.sin_port = htons(port); 
-
-    if (connect(sockfd, (SA*)&servaddr, sizeof(servaddr)) != 0) { 
-		printf("Connection with the server failed...\n"); 
-		exit(0); 
-	} 
-	
-    write(sockfd, data_char, sizeof(data_char)); //writing command to server
-    close(sockfd);
-}
+vector <blockchain::block> chain;
+blockchain::node me;
+string priv_key;
 
 int init_listen_port(int port){
     int sockfd;
@@ -293,60 +249,182 @@ void testSign(){
 //----------------------------------------
 
 
+
+void sendTo(string ip, int port, const char *data){
+    char ip_char[MAX];
+    char data_char[MAX];
+    strcpy(ip_char, ip.c_str());
+    strcpy(data_char, data);
+    int sockfd = socket(AF_INET, SOCK_STREAM, 0); 
+	if (sockfd == -1) { 
+		printf("Socket creation failed...\n"); 
+		exit(0); 
+	} 
+
+	// assign IP, PORT 
+    struct sockaddr_in servaddr;
+	bzero(&servaddr, sizeof(servaddr)); 
+
+	servaddr.sin_family = AF_INET; 
+	servaddr.sin_addr.s_addr = inet_addr(ip_char); 
+	servaddr.sin_port = htons(port); 
+
+    if (connect(sockfd, (SA*)&servaddr, sizeof(servaddr)) != 0) { 
+		printf("Connection with the server failed...\n"); 
+		exit(0); 
+	} 
+	
+    write(sockfd, data_char, sizeof(data_char)); //writing command to server
+    close(sockfd);
+}
+
+void msgSender(blockchain::envelope env, blockchain::node to){
+    auto [ip, port, pub_key] = to;
+    json js = env;
+    stringstream data_str; 
+    data_str << js;
+    string data_s = data_str.str();
+    if(data_s.length() >= MAX){
+        cout<<"MSG TOO LONG\n";
+        return;
+    }
+    sendTo(ip, port, data_s.c_str());
+}
+
+
+
+void msgHandler(blockchain::envelope env){
+    auto [from, subject, data] = env;
+    if(subject.compare("INIT_PEERS")==0){
+        json js = known_peers;
+        stringstream data_str; 
+        data_str << js;
+        string data_s = data_str.str();
+        blockchain::envelope env_reply = {me, "INIT_PEERS_REPLY", data_s};
+        msgSender(env_reply, from);
+        known_peers.push_back(from);
+    }
+    else if(subject.compare("INIT_PEERS_REPLY")==0){
+        json js = json::parse(data);
+        vector <blockchain::node> new_peers = js.get<vector<blockchain::node>>();
+        for( auto n : new_peers){
+            known_peers.push_back(n);
+        }
+        cout<<"Initialised peers!\n> ";
+    }
+    else{
+        cout<<"RECEIVED UNKNOWN MESSAGE: "<<subject<<endl;
+    }
+}
+
+
+void listener_func(int sockfd){
+    struct sockaddr_in cli;
+    socklen_t len = sizeof(cli);
+    char buffComm[MAX];
+    while(1){
+        bzero(buffComm, MAX); 
+        int connfd = accept(sockfd, (SA*)&cli, &len); 
+        if (connfd < 0) { 
+            printf("Server accept failed...\n"); 
+            exit(0); 
+        }  
+		read(connfd, buffComm, sizeof(buffComm));
+        // getsockname(sockfd, (SA*)&cli, &len); 
+        // printf("[%d] : %s> ",(int) cli.sin_port, buffComm);
+        // break;
+        string buffString(buffComm);
+        json js = json::parse(buffString);
+        blockchain::envelope env = js.get<blockchain::envelope>();
+        msgHandler(env);
+    }
+
+}
+
+
+
+void commandHandler(string cmd){
+    if(cmd.compare("INIT\n")==0){
+        string ip, pub_key;
+        int port;
+        cout<<"IP of friend: ";
+        cin>>ip;
+        cout<<"PORT: ";
+        cin>>port;
+        cout<<"public key: ";
+        cin>>pub_key;
+        blockchain::node to = {ip, port, pub_key};
+        blockchain::envelope env = {me, "INIT_PEERS", ""};
+        msgSender(env, to);
+    }
+    else if(cmd.compare("LIST PEERS\n")==0){
+        json js = known_peers;
+        cout<<js<<endl;
+        cout<<"> ";
+    }
+    else{
+        cout<<"UNKNOWN COMMAND "<<cmd;
+    }
+}
+
 int main(int argc, char **argv) {
     if (argc!=2){
 		printf("Usage: [executable] [list_PORT]");
 		return 0;
 	}
-
+    int port = atoi(argv[1]);
     cout<<"LISTENING @ "<<argv[1]<<endl;
-    cout<<"[IP] [PORT] [your message]\n";
+    // cout<<"[IP] [PORT] [your message]\n";
+    
+    cout<<"Private key: ";
+    cin>>priv_key;
+    me.ip = "127.0.0.1";
+    me.port = port;
+    me.pub_key = getPublicKey(priv_key);
+    known_peers.push_back(me);
 
     //--- for debugging
-    blockchain::node n = {"127.0.0.1", 9003, getPublicKey("6D22AB6A1FD3FC1F5EBEDCA222151375683B733E9DDC9CA5B2485E202C55D25C")};
-    known_peers.push_back(n);
-    for (auto n :  known_peers){
-        cout<<"public key: "<<n.pub_key<<endl;
-    }
-    json j = known_peers;
-    blockchain::transaction t;
+    // blockchain::node n = {"127.0.0.1", 9003, getPublicKey("6D22AB6A1FD3FC1F5EBEDCA222151375683B733E9DDC9CA5B2485E202C55D25C")};
+    // known_peers.push_back(n);
+    // blockchain::node n1 = {"127.0.0.1", 9004, getPublicKey("7D22AB6A1FD3FC1F5EBEDCA222151375683B733E9DDC9CA5B2485E202C55D25C")};
+    // known_peers.push_back(n1);
+    // for (auto n :  known_peers){
+    //     cout<<"public key: "<<n.pub_key<<endl;
+    // }
+    // return 0;
+    // json j = known_peers;
+    // blockchain::transaction t;
     
-    cout<<"peer json: "<<j<<endl;
-    blockchain::input in = {1, 0, "ginature1", "bignature"};
-    blockchain::output out = {1.0, "04199216BE19D346E73195C9D2BC13D3B996124E287EBE433DB6B040B975192FB35653C7FBA678896902838121970314106A34719AAD96C868C6D160DE43A4B326"};
-    vector<blockchain::input> inputs = {in};
-    vector<blockchain::output> outputs = {out};
+    // cout<<"peer json: "<<j<<endl;
+    // blockchain::input in = {1, 0, "ginature1", "bignature"};
+    // blockchain::output out = {1.0, "04199216BE19D346E73195C9D2BC13D3B996124E287EBE433DB6B040B975192FB35653C7FBA678896902838121970314106A34719AAD96C868C6D160DE43A4B326"};
+    // vector<blockchain::input> inputs = {in};
+    // vector<blockchain::output> outputs = {out};
 
-    blockchain::transaction tx = {inputs, outputs};
-    vector<blockchain::transaction> tx_vec = {tx};
-    json trans_json = tx;
-    json trans_vec_json = tx_vec;
-    
-    cout<<"transaction : "<<trans_json<<endl;
-    cout<<"transaction vec: "<<trans_vec_json<<endl;
-    return 0;
+    // blockchain::transaction tx = {inputs, outputs};
+    // vector<blockchain::transaction> tx_vec = {tx};
+    // json trans_json = tx;
+    // json trans_vec_json = tx_vec;
+
+    // cout<<"transaction : "<<trans_json<<endl;
+    // cout<<"transaction vec: "<<trans_vec_json<<endl;
+    // return 0;
     //-----------------
-    int port = atoi(argv[1]);
     int sockfd = init_listen_port(port);
     thread listener (listener_func, sockfd);
-    
-    
 
     while(1){
         cout<<"> ";       
-        string ip = "127.0.0.1";
         char data[MAX];
         bzero(&data, MAX);
-        int port;
-        cin>>ip;
-        cin>>port;
         fgets(data, 900, stdin);
         // cin>>ip>>port>>data;
         if(port==0){
             close(sockfd);
             exit(0);
         }
-        sendTo(ip, port, data);
+        string command(data);
+        commandHandler(command);
     }
     close(sockfd); 
     return 0;

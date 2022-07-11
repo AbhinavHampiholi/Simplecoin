@@ -83,6 +83,23 @@ namespace blockchain{
         j.at("hash_prev").get_to(b.hash_prev);
         j.at("tx").get_to(b.tx);
     }
+
+    typedef struct envelope{
+        node from;
+        string subject;
+        string data;
+    } envelope;
+
+    void to_json(json& j, const envelope& e) {
+        j["from"] = e.from;
+        j["subject"] = e.subject;
+        j["data"] = e.data;
+    }
+    void from_json(const json& j, envelope& e) {
+        j.at("from").get_to(e.from);
+        j.at("subject").get_to(e.subject);
+        j.at("data").get_to(e.data);
+    }
 }
 
 #endif
