@@ -24,6 +24,16 @@
  * req_add INIT_PEERS_REPLY peers : add peers to known_peers
  * req_add INIT_BLOCKS_REPLY blocks : set known_blocks := blocks
  * 
+ * List of command subjects
+ * 
+ * GENESIS
+ * INIT_PEERS
+ * INIT_PEERS_REPLY
+ * LIST_PEERS
+ * INIT_BLOCKS
+ * INIT_BLOCKS_REPLY
+ * LIST_BLOCKS
+ * 
  * */
 #include <stdio.h> 
 #include <sys/socket.h> 
@@ -291,26 +301,48 @@ void msgSender(blockchain::envelope env, blockchain::node to){
     sendTo(ip, port, data_s.c_str());
 }
 
+void msgBroadcaster(blockchain::envelope env){
+    for(auto peer : known_peers){
+        if(peer.pub_key != me.pub_key) msgSender(env, peer);
+    }
+}
 
 
 void msgHandler(blockchain::envelope env){
     auto [from, subject, data] = env;
-    if(subject.compare("INIT_PEERS")==0){
-        json js = known_peers;
+    json js  = json::parse(data);
+    if(subject == "INIT_PEERS"){
+        // cout<<"inside init_peers\n";
+        json js_reply = known_peers;
+        // cout<<"json reply ready...\n";
         stringstream data_str; 
-        data_str << js;
+        data_str << js_reply;
         string data_s = data_str.str();
         blockchain::envelope env_reply = {me, "INIT_PEERS_REPLY", data_s};
         msgSender(env_reply, from);
         known_peers.push_back(from);
     }
-    else if(subject.compare("INIT_PEERS_REPLY")==0){
-        json js = json::parse(data);
+    else if(subject == "INIT_PEERS_REPLY"){
         vector <blockchain::node> new_peers = js.get<vector<blockchain::node>>();
         for( auto n : new_peers){
             known_peers.push_back(n);
         }
         cout<<"Initialised peers!\n> ";
+    }
+    else if(subject == "INIT_BLOCKS"){
+        json js_reply = chain;
+        stringstream data_str; 
+        data_str << js_reply;
+        string data_s = data_str.str();
+        blockchain::envelope env_reply = {me, "INIT_BLOCKS_REPLY", data_s};
+        msgSender(env_reply, from);
+    }
+    else if(subject == "INIT_BLOCKS_REPLY"){
+        vector <blockchain::block> new_blocks = js.get<vector<blockchain::block>>();
+        for( auto n : new_blocks){
+            chain.push_back(n);
+        }
+        cout<<"Initialised blocks!\n> ";
     }
     else{
         cout<<"RECEIVED UNKNOWN MESSAGE: "<<subject<<endl;
@@ -330,21 +362,20 @@ void listener_func(int sockfd){
             exit(0); 
         }  
 		read(connfd, buffComm, sizeof(buffComm));
-        // getsockname(sockfd, (SA*)&cli, &len); 
-        // printf("[%d] : %s> ",(int) cli.sin_port, buffComm);
-        // break;
+
         string buffString(buffComm);
+        // cout<<"REC: "<<buffString<<endl;
         json js = json::parse(buffString);
+        // cout<<"json :"<<js<<endl;
         blockchain::envelope env = js.get<blockchain::envelope>();
+        // cout<<"got envelope...\n";
         msgHandler(env);
     }
 
 }
 
-
-
 void commandHandler(string cmd){
-    if(cmd.compare("INIT\n")==0){
+    if(cmd == "INIT_PEERS\n"){
         string ip, pub_key;
         int port;
         cout<<"IP of friend: ";
@@ -354,13 +385,36 @@ void commandHandler(string cmd){
         cout<<"public key: ";
         cin>>pub_key;
         blockchain::node to = {ip, port, pub_key};
-        blockchain::envelope env = {me, "INIT_PEERS", ""};
+        blockchain::envelope env = {me, "INIT_PEERS", "{}"};
         msgSender(env, to);
     }
-    else if(cmd.compare("LIST PEERS\n")==0){
+    else if(cmd == "LIST_PEERS\n"){
         json js = known_peers;
         cout<<js<<endl;
         cout<<"> ";
+    }
+    else if(cmd == "GENESIS\n"){
+        //You are the first node
+        //Add genesis block to the chain
+        blockchain::input gen_in = {0, 0, "genesis", "genesis"};
+        blockchain::output gen_out = {25.0, "04199216BE19D346E73195C9D2BC13D3B996124E287EBE433DB6B040B975192FB35653C7FBA678896902838121970314106A34719AAD96C868C6D160DE43A4B326"};
+        vector <blockchain::input> gen_ins = {gen_in};
+        vector<blockchain::output> gen_outs = {gen_out};
+        blockchain::transaction tx = {gen_ins, gen_outs};
+        blockchain::block gen_blk = {"nonsense", "nohash", tx};
+
+        chain.push_back(gen_blk);
+        cout<<"Added genesis!\n";
+    }
+    else if(cmd == "INIT_BLOCKS\n"){
+        //Must be called only AFTER init peers
+        blockchain::node to = known_peers[1]; //this should be fine since there will be atleast one other peer
+        blockchain::envelope env = {me, "INIT_BLOCKS", "{}"};
+        msgSender(env, to);
+    }
+    else if(cmd == "LIST_BLOCKS\n"){
+        json js = chain;
+        cout<<js<<endl;
     }
     else{
         cout<<"UNKNOWN COMMAND "<<cmd;
@@ -375,7 +429,6 @@ int main(int argc, char **argv) {
     int port = atoi(argv[1]);
     cout<<"LISTENING @ "<<argv[1]<<endl;
     // cout<<"[IP] [PORT] [your message]\n";
-    
     cout<<"Private key: ";
     cin>>priv_key;
     me.ip = "127.0.0.1";
