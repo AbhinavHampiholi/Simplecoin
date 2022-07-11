@@ -4,7 +4,7 @@
  * This means that it is basically both a server and a client
  * 
  * 
- * Let ADD be the address of the node i.e [IP PORT PK]
+ * Let ADD be the address of the node i.e [IP PORT PUBKEY]
  * 
  * Commands to send data
  * INIT_PEERS ip port : sends a message of the form [add INIT_PEERS] to (ip, port)
@@ -19,7 +19,7 @@
  * req_add INIT_BLOCKS : send a message to req_add of the form [add INIT_BLOCKS_REPLY blocks] where blocks are all known_blocks
  * req_add INTRO : add req_add to known_peers
  * req_add TX tx : add tx to pending_tx
- * req_add BLK blk : verify if blk is valid. If valid, append to known_blocks
+ * req_add BLK blk : verify if blk is valid. If valid, append to known_blocks and  remove transaction from 
  * req_add CHAT  msg : print the chat on stdout
  * req_add INIT_PEERS_REPLY peers : add peers to known_peers
  * req_add INIT_BLOCKS_REPLY blocks : set known_blocks := blocks
@@ -41,12 +41,16 @@
 #include <openssl/ecdsa.h>
 #include <openssl/pem.h>
 #include <openssl/bn.h>
+#include "node.hpp"
+#include "json.hpp"
 
 
 #define SA struct sockaddr 
 #define  MAX 1000
 using namespace std;
+using json = nlohmann::json;
 
+vector <blockchain::node> known_peers;
 
 void listener_func(int sockfd){
     struct sockaddr_in cli;
@@ -281,18 +285,52 @@ void testSign(){
 
 //------- END OF DIGITAL SIGNATURE FUNCTIONS -------
 
+//--------SERIALIZE and DESERIALIZE-------
+/**
+ * These are the functions we use to 
+ * */
+
+//----------------------------------------
+
 
 int main(int argc, char **argv) {
     if (argc!=2){
 		printf("Usage: [executable] [list_PORT]");
 		return 0;
 	}
+
+    cout<<"LISTENING @ "<<argv[1]<<endl;
+    cout<<"[IP] [PORT] [your message]\n";
+
+    //--- for debugging
+    blockchain::node n = {"127.0.0.1", 9003, getPublicKey("6D22AB6A1FD3FC1F5EBEDCA222151375683B733E9DDC9CA5B2485E202C55D25C")};
+    known_peers.push_back(n);
+    for (auto n :  known_peers){
+        cout<<"public key: "<<n.pub_key<<endl;
+    }
+    json j = known_peers;
+    blockchain::transaction t;
+    
+    cout<<"peer json: "<<j<<endl;
+    blockchain::input in = {1, 0, "ginature1", "bignature"};
+    blockchain::output out = {1.0, "04199216BE19D346E73195C9D2BC13D3B996124E287EBE433DB6B040B975192FB35653C7FBA678896902838121970314106A34719AAD96C868C6D160DE43A4B326"};
+    vector<blockchain::input> inputs = {in};
+    vector<blockchain::output> outputs = {out};
+
+    blockchain::transaction tx = {inputs, outputs};
+    vector<blockchain::transaction> tx_vec = {tx};
+    json trans_json = tx;
+    json trans_vec_json = tx_vec;
+    
+    cout<<"transaction : "<<trans_json<<endl;
+    cout<<"transaction vec: "<<trans_vec_json<<endl;
+    return 0;
+    //-----------------
     int port = atoi(argv[1]);
     int sockfd = init_listen_port(port);
     thread listener (listener_func, sockfd);
     
-    cout<<"LISTENING @ "<<port<<endl;
-    cout<<"[IP] [PORT] [your message]\n";
+    
 
     while(1){
         cout<<"> ";       
