@@ -33,6 +33,8 @@
  * INIT_BLOCKS
  * INIT_BLOCKS_REPLY
  * LIST_BLOCKS
+ * BCAST_ID
+ * BCAST_TX
  * 
  * */
 #include <stdio.h> 
@@ -301,6 +303,9 @@ void msgSender(blockchain::envelope env, blockchain::node to){
     sendTo(ip, port, data_s.c_str());
 }
 
+/**
+ * Broadcasts envelope to all known peers
+ * */
 void msgBroadcaster(blockchain::envelope env){
     for(auto peer : known_peers){
         if(peer.pub_key != me.pub_key) msgSender(env, peer);
@@ -344,11 +349,51 @@ void msgHandler(blockchain::envelope env){
         }
         cout<<"Initialised blocks!\n> ";
     }
+    else if(subject == "INTRO"){
+        bool to_push = true;
+        for(auto n : known_peers){
+            if(n.pub_key == from.pub_key) to_push = false;
+        }
+        if(to_push) known_peers.push_back(from);
+    }
+    else if(subject == "NEW_TX"){
+        cout<<"heard new tx!\n";
+        cout<<data<<endl;
+    }
     else{
         cout<<"RECEIVED UNKNOWN MESSAGE: "<<subject<<endl;
     }
 }
 
+/**
+ * returns true if the outputs[op_index] in chain[bid] has not
+ * yet been referenced anywhere on the blockchain so far and therefore is unspent
+ * */
+bool check_if_unspent(int bid, int op_index){
+    int l = chain.size();
+    for (int i = bid; i<l; i++){
+        auto [nonce, hash_prev, tx] = chain[i];
+        for(auto in : tx.inputs){
+            if(in.ui.tx_id == bid && in.ui.op_index == op_index) return false;
+        }
+    }
+    return true;
+}
+
+
+vector<blockchain::input>sign_inputs(string private_key, vector<blockchain::input>unsigned_inp){
+    vector<blockchain::input> signed_inputs;
+    for(auto inp : unsigned_inp){
+        json js_ui = inp.ui;
+        // cout<<"json reply ready...\n";
+        stringstream data_str; 
+        data_str << js_ui;
+        string data_s = data_str.str();
+        auto signed_pair = signMsg(data_s, private_key);
+        signed_inputs.push_back({inp.ui, signed_pair.first, signed_pair.second});
+    }
+    return signed_inputs;
+}   
 
 void listener_func(int sockfd){
     struct sockaddr_in cli;
@@ -396,7 +441,8 @@ void commandHandler(string cmd){
     else if(cmd == "GENESIS\n"){
         //You are the first node
         //Add genesis block to the chain
-        blockchain::input gen_in = {0, 0, "genesis", "genesis"};
+        blockchain::unsigned_input gen_in_unsigned = {-1, -1, "somepubkey", 25.0};
+        blockchain::input gen_in = {gen_in_unsigned, "genesis", "genesis"};
         blockchain::output gen_out = {25.0, "04199216BE19D346E73195C9D2BC13D3B996124E287EBE433DB6B040B975192FB35653C7FBA678896902838121970314106A34719AAD96C868C6D160DE43A4B326"};
         vector <blockchain::input> gen_ins = {gen_in};
         vector<blockchain::output> gen_outs = {gen_out};
@@ -415,6 +461,78 @@ void commandHandler(string cmd){
     else if(cmd == "LIST_BLOCKS\n"){
         json js = chain;
         cout<<js<<endl;
+    }
+    else if(cmd == "BCAST_ID\n"){
+        blockchain::envelope env = {me, "INTRO", "{}"};
+        msgBroadcaster(env);
+    }
+    else if(cmd == "BCAST_TX\n"){
+        cout<<"Enter your public key: ";
+        string sender_pubkey;
+        cin>>sender_pubkey;
+        cout<<"Enter recepient public key: ";
+        string rec_pubkey;
+        cin>>rec_pubkey;
+        cout<<"Enter amount to be transferred: ";
+        float amt;
+        cin>>amt;
+        float total_amt = 0.0;
+        vector<blockchain::input> new_unsigned_inputs;
+        for (int i = 0; i<chain.size(); i++){
+            auto [nonce, hash_prev, tx] = chain[i];
+            for(int j = 0; j<tx.outputs.size(); j++){
+                if(tx.outputs[j].pub_key==sender_pubkey && check_if_unspent(i, j)) {
+                    total_amt+=tx.outputs[j].value;
+                    blockchain::unsigned_input ui;
+                    ui = {i, j, sender_pubkey, tx.outputs[j].value};
+                    new_unsigned_inputs.push_back({ui, "unsigned", "unsigned"});
+                }
+                //debugging only
+                // else{
+                //     cout<<"transaction output: "<<tx.outputs[j].pub_key<<"--xx--\n";
+                //     cout<<"sender_publickey: "<<sender_pubkey<<"--xx--\n";
+                //     if(tx.outputs[j].pub_key==sender_pubkey) cout<<"they  are equal\n";
+                //     else cout<<"they are not equal\n";
+                //     cout<<"i = "<<i<<" j = "<<j<<endl;
+                //     if(check_if_unspent(i, j)) cout<<"This is unspent!\n";
+                //     else cout<<"this is spent!\n";
+                // }
+            }
+        }
+        if(total_amt < amt){
+            cout<<"Insufficient funds. Current account balance: "<<total_amt<<endl;
+        }
+        else{
+            vector<blockchain::output>outputs;
+            blockchain::output to_rec, change;
+            to_rec = {amt, rec_pubkey};
+            change = {total_amt-amt, sender_pubkey};
+            outputs.push_back(to_rec);
+            outputs.push_back(change);
+            blockchain::transaction unsigned_tx = {new_unsigned_inputs, outputs};
+            json j_us = unsigned_tx;
+            cout<<"Your unsigned transation is "<<endl;
+            cout<<j_us<<endl;
+            cout<<"Do you wish to sign it and broadcast?(y/n)?\n";
+            string conf;
+            cin>>conf;
+            if(conf == "y"){
+                cout<<"creating tx...\n";
+                auto signed_inputs = sign_inputs(priv_key, new_unsigned_inputs);
+                blockchain::transaction signed_tx = {signed_inputs, outputs};
+                json js_tx = signed_tx;
+                // cout<<"json reply ready...\n";
+                stringstream data_str; 
+                data_str << js_tx;
+                string data_s = data_str.str();
+                blockchain::envelope env =  {me, "NEW_TX", data_s};
+                cout<<"broadcasting...\n";
+                msgBroadcaster(env);
+            }
+            else{
+                cout<<"exiting transaction...\n";
+            }
+        }
     }
     else{
         cout<<"UNKNOWN COMMAND "<<cmd;

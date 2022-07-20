@@ -23,19 +23,35 @@ namespace blockchain{
         j.at("pub_key").get_to(n.pub_key);
     }
 
-    typedef struct input{
+    typedef struct unsigned_input{
         int tx_id; //index of referenced transaction in the blockchain
         int op_index; //the output within that transaction that is being referenced
-        string sig_r; // the sender must sign the string "tx_id[op_index]" with his private key to authorize
+        string pub_key; //of the sender
+        float value; //of the referenced transaction
+    } unsigned_input;
+
+    void to_json(json& j, const unsigned_input& i) {
+        j = json{{"tx_id", i.tx_id}, {"op_index", i.op_index}
+        ,  {"pub_key", i.pub_key}, {"value", i.value}};
+    }
+    void from_json(const json& j, unsigned_input& i) {
+        j.at("tx_id").get_to(i.tx_id);
+        j.at("op_index").get_to(i.op_index);
+        j.at("pub_key").get_to(i.pub_key);
+        j.at("value").get_to(i.value);
+    }
+
+    typedef struct input{
+        unsigned_input ui;
+        string sig_r; // the sender must sign the string ui with his private key to authorize
         string sig_s;
     } input;
 
     void to_json(json& j, const input& i) {
-        j = json{{"tx_id", i.tx_id}, {"op_index", i.op_index}, {"sig_r", i.sig_r}, {"sig_s", i.sig_s}};
+        j = json{{"ui", i.ui}, {"sig_r", i.sig_r}, {"sig_s", i.sig_s}};
     }
     void from_json(const json& j, input& i) {
-        j.at("tx_id").get_to(i.tx_id);
-        j.at("op_index").get_to(i.op_index);
+        j.at("ui").get_to(i.ui);
         j.at("sig_r").get_to(i.sig_r);
         j.at("sig_s").get_to(i.sig_s);
     }
