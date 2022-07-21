@@ -62,8 +62,11 @@
 using namespace std;
 using json = nlohmann::json;
 
+int DIFFICULTY = 4;
+string DIFFICULTY_STRING = "0000";
 vector <blockchain::node> known_peers;
 vector <blockchain::block> chain;
+vector <blockchain::transaction> unblocked_tx;
 blockchain::node me;
 string priv_key;
 
@@ -361,6 +364,79 @@ void msgBroadcaster(blockchain::envelope env){
 }
 
 
+std::string gen_random(const int len) {
+    static const char alphanum[] =
+        "0123456789"
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+        "abcdefghijklmnopqrstuvwxyz";
+    std::string tmp_s;
+    tmp_s.reserve(len);
+
+    for (int i = 0; i < len; ++i) {
+        tmp_s += alphanum[rand() % (sizeof(alphanum) - 1)];
+    }
+    
+    return tmp_s;
+}
+
+blockchain::block find_nonce(blockchain::transaction tx){
+    auto prev_block = chain[chain.size()-1];
+    json js_prev = prev_block;
+    stringstream prev_block_stream;
+    prev_block_stream << js_prev;
+    string prev_block_str = prev_block_stream.str();
+    string hash_prev = sha256(prev_block_str);
+
+    json js_tx = tx;
+    stringstream tx_stream;
+    tx_stream << js_tx;
+    string tx_str = tx_stream.str();
+    int tries = 0;
+    while(true){
+        string nonce = gen_random(64);
+        tries++;
+        blockchain::block trial_blk= {nonce, hash_prev, tx};
+        json trial_js = trial_blk;
+        stringstream trial_stream;
+        trial_stream << trial_js;
+        string trial = trial_stream.str();
+        if(sha256(trial).substr(64 - DIFFICULTY) == DIFFICULTY_STRING){
+            cout<<"Nonce found! after "<<tries<<" attempts\n";
+            cout<<"Hash of block is "<<sha256(trial)<<endl;
+            cout<<trial_js;
+            return trial_blk;
+        }
+        if(tries%100000==0){
+            cout<<"failed nonces: "<<tries<<endl;
+        }
+    }
+}
+
+bool verify_block(blockchain::block blk){
+    //fill this in later!
+    return true;
+}
+
+void miner_func(){
+    while(true){
+        sleep(1);
+        if(unblocked_tx.size()>0){
+            int chain_length = chain.size();
+            blockchain::block newBlock = find_nonce(unblocked_tx[0]);
+            chain.push_back(newBlock);
+            cout<<"Block mined!\n";
+            //Later check if you actually mined first before broadcasting
+            json block_js = newBlock;
+            stringstream data_str;
+            data_str << block_js;
+            string data_s = data_str.str();
+            blockchain::envelope new_blk_env = {me, "NEW_BLOCK", data_s};
+            msgBroadcaster(new_blk_env);
+            unblocked_tx.clear(); //Actually just erase the tx that was mined... Change this later
+        }
+    }
+}
+
 void msgHandler(blockchain::envelope env){
     auto [from, subject, data] = env;
     json js  = json::parse(data);
@@ -410,6 +486,19 @@ void msgHandler(blockchain::envelope env){
         blockchain::transaction tx =  js.get<blockchain::transaction>();
         if(verify_transaction(tx)){
             cout<<"transaction verified!\n";
+            unblocked_tx.push_back(tx);
+        }
+    }
+    else if(subject == "NEW_BLOCK"){
+        cout<<"Heard new block!\n";
+        cout<<data<<endl;
+        blockchain::block new_block = js.get<blockchain::block>();
+        if(verify_block(new_block)) {
+            cout<<"Block verified!\n";
+            chain.push_back(new_block);
+        }
+        else{
+            cout<<"Invalid block!\n";
         }
     }
     else{
@@ -621,6 +710,7 @@ int main(int argc, char **argv) {
     //-----------------
     int sockfd = init_listen_port(port);
     thread listener (listener_func, sockfd);
+    thread miner (miner_func);
 
     while(1){
         cout<<"> ";       
