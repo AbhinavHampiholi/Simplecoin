@@ -163,6 +163,21 @@ string getPublicKey(string prv_key){
     return pub_key;
 }
 
+/**
+ * returns true if the outputs[op_index] in chain[bid] has not
+ * yet been referenced anywhere on the blockchain so far and therefore is unspent
+ * */
+bool check_if_unspent(int bid, int op_index){
+    int l = chain.size();
+    for (int i = bid; i<l; i++){
+        auto [nonce, hash_prev, tx] = chain[i];
+        for(auto in : tx.inputs){
+            if(in.ui.tx_id == bid && in.ui.op_index == op_index) return false;
+        }
+    }
+    return true;
+}
+
 
 /**
  * prv_key as above
@@ -249,6 +264,39 @@ void testSign(){
     pair <string, string> new_sig = make_pair(sig_fraud, sig.second);
     verify = verifySign(abhi, new_sig, pub_key);
     if(verify) {cout<<"verified!\n";} else {cout<<"NOT verified!\n";}
+}
+
+bool verify_transaction(blockchain::transaction tx){
+    //a transaction is valid iff 
+    // 1. Sum input values = Sum output values
+    // 2. All inputs reference unspent transactions on the blockchain
+    // 3. All inputs are signed by the sender 
+    float inp_sum = 0.0;
+    float out_sum = 0.0;
+    for (auto i : tx.inputs){
+        inp_sum += i.ui.value;
+        if(!check_if_unspent(i.ui.tx_id, i.ui.op_index)) {
+            cout<<"references a spent transaction!\n";
+            return false;
+        }
+        json js_ui = i.ui;
+        stringstream data_str; 
+        data_str << js_ui;
+        string data_s = data_str.str();
+        if(!verifySign(data_s, make_pair(i.sig_r, i.sig_s), i.ui.pub_key)){
+            cout<<"Invalid signature!\n";
+            return false;
+        }
+    }
+    for (auto o : tx.outputs){
+        out_sum += o.value;
+    }
+
+    if(inp_sum != out_sum){
+        cout<<"transaction inputs don't match  outputs\n";
+        return false;
+    }
+    return true;
 }
 
 //------- END OF DIGITAL SIGNATURE FUNCTIONS -------
@@ -359,26 +407,16 @@ void msgHandler(blockchain::envelope env){
     else if(subject == "NEW_TX"){
         cout<<"heard new tx!\n";
         cout<<data<<endl;
+        blockchain::transaction tx =  js.get<blockchain::transaction>();
+        if(verify_transaction(tx)){
+            cout<<"transaction verified!\n";
+        }
     }
     else{
         cout<<"RECEIVED UNKNOWN MESSAGE: "<<subject<<endl;
     }
 }
 
-/**
- * returns true if the outputs[op_index] in chain[bid] has not
- * yet been referenced anywhere on the blockchain so far and therefore is unspent
- * */
-bool check_if_unspent(int bid, int op_index){
-    int l = chain.size();
-    for (int i = bid; i<l; i++){
-        auto [nonce, hash_prev, tx] = chain[i];
-        for(auto in : tx.inputs){
-            if(in.ui.tx_id == bid && in.ui.op_index == op_index) return false;
-        }
-    }
-    return true;
-}
 
 
 vector<blockchain::input>sign_inputs(string private_key, vector<blockchain::input>unsigned_inp){
@@ -517,7 +555,7 @@ void commandHandler(string cmd){
             string conf;
             cin>>conf;
             if(conf == "y"){
-                cout<<"creating tx...\n";
+                // cout<<"creating tx...\n";
                 auto signed_inputs = sign_inputs(priv_key, new_unsigned_inputs);
                 blockchain::transaction signed_tx = {signed_inputs, outputs};
                 json js_tx = signed_tx;
