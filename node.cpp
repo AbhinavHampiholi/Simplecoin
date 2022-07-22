@@ -36,6 +36,7 @@
  * BCAST_ID
  * BCAST_TX
  * 
+ * 
  * */
 #include <stdio.h> 
 #include <sys/socket.h> 
@@ -62,8 +63,8 @@
 using namespace std;
 using json = nlohmann::json;
 
-int DIFFICULTY = 4;
-string DIFFICULTY_STRING = "0000";
+int DIFFICULTY = 5;
+string DIFFICULTY_STRING = "00000";
 vector <blockchain::node> known_peers;
 vector <blockchain::block> chain;
 vector <blockchain::transaction> unblocked_tx;
@@ -296,9 +297,10 @@ bool verify_transaction(blockchain::transaction tx){
     }
 
     if(inp_sum != out_sum){
-        cout<<"transaction inputs don't match  outputs\n";
+        cout<<"transaction inputs don't match outputs\n";
         return false;
     }
+    cout<<"transaction verified!\n";
     return true;
 }
 
@@ -363,7 +365,9 @@ void msgBroadcaster(blockchain::envelope env){
     }
 }
 
-
+/**
+ * This guy needs work. rand() is a terrible random  number generator.
+ * */
 std::string gen_random(const int len) {
     static const char alphanum[] =
         "0123456789"
@@ -406,20 +410,43 @@ blockchain::block find_nonce(blockchain::transaction tx){
             cout<<trial_js;
             return trial_blk;
         }
-        if(tries%100000==0){
-            cout<<"failed nonces: "<<tries<<endl;
+        if(tries%10000==0){
+            cout<<"Nonces tried: "<<tries<<endl;
         }
     }
 }
 
 bool verify_block(blockchain::block blk){
     //fill this in later!
+    json blk_js = blk;
+    stringstream blk_stream;
+    blk_stream << blk_js;
+    string blk_str = blk_stream.str();
+    if(sha256(blk_str).substr(64-DIFFICULTY) != DIFFICULTY_STRING) {
+        cout<<"incorrect nonce! invalid block\n";
+        return false;
+    }
+    
+    json blk_prev = chain[chain.size()-1];
+    stringstream blk_prev_stream;
+    blk_prev_stream << blk_prev;
+    string blk_prev_str = blk_prev_stream.str();
+    if(sha256(blk_prev_str) != blk.hash_prev) {
+        cout<<"incorrect prev hash! Invalid block\n";
+        return false;
+    }
+
+    if(!verify_transaction(blk.tx)){
+        cout<<"invalid transaction! Invalid block\n";
+        return false;
+    }
+    cout<<"Block verified!\n";
     return true;
 }
 
 void miner_func(){
     while(true){
-        sleep(1);
+        sleep(1); //unneccesary
         if(unblocked_tx.size()>0){
             int chain_length = chain.size();
             blockchain::block newBlock = find_nonce(unblocked_tx[0]);
@@ -432,7 +459,7 @@ void miner_func(){
             string data_s = data_str.str();
             blockchain::envelope new_blk_env = {me, "NEW_BLOCK", data_s};
             msgBroadcaster(new_blk_env);
-            unblocked_tx.clear(); //Actually just erase the tx that was mined... Change this later
+            unblocked_tx.erase(unblocked_tx.begin()); //just erase the tx that was mined
         }
     }
 }
@@ -485,7 +512,6 @@ void msgHandler(blockchain::envelope env){
         cout<<data<<endl;
         blockchain::transaction tx =  js.get<blockchain::transaction>();
         if(verify_transaction(tx)){
-            cout<<"transaction verified!\n";
             unblocked_tx.push_back(tx);
         }
     }
@@ -494,11 +520,7 @@ void msgHandler(blockchain::envelope env){
         cout<<data<<endl;
         blockchain::block new_block = js.get<blockchain::block>();
         if(verify_block(new_block)) {
-            cout<<"Block verified!\n";
             chain.push_back(new_block);
-        }
-        else{
-            cout<<"Invalid block!\n";
         }
     }
     else{
@@ -593,6 +615,7 @@ void commandHandler(string cmd){
         blockchain::envelope env = {me, "INTRO", "{}"};
         msgBroadcaster(env);
     }
+    // This is a terrible way to make new transactions it is way too naive. Change it.
     else if(cmd == "BCAST_TX\n"){
         cout<<"Enter your public key: ";
         string sender_pubkey;
@@ -612,18 +635,9 @@ void commandHandler(string cmd){
                     total_amt+=tx.outputs[j].value;
                     blockchain::unsigned_input ui;
                     ui = {i, j, sender_pubkey, tx.outputs[j].value};
+                    //Just push all possible inputs into the tx!? unnecessary
                     new_unsigned_inputs.push_back({ui, "unsigned", "unsigned"});
                 }
-                //debugging only
-                // else{
-                //     cout<<"transaction output: "<<tx.outputs[j].pub_key<<"--xx--\n";
-                //     cout<<"sender_publickey: "<<sender_pubkey<<"--xx--\n";
-                //     if(tx.outputs[j].pub_key==sender_pubkey) cout<<"they  are equal\n";
-                //     else cout<<"they are not equal\n";
-                //     cout<<"i = "<<i<<" j = "<<j<<endl;
-                //     if(check_if_unspent(i, j)) cout<<"This is unspent!\n";
-                //     else cout<<"this is spent!\n";
-                // }
             }
         }
         if(total_amt < amt){
