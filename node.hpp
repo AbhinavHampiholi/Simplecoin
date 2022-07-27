@@ -86,17 +86,20 @@ namespace blockchain{
     typedef struct block{
         string nonce; //A string such that SHA256(nonce+hash_prev+tx) has the target property
         string hash_prev; //hash of previous block
+        string miner; //the public_key of the miner
         transaction tx;
     } block;
 
     void to_json(json& j, const block& b) {
         j["nonce"] = b.nonce;
         j["hash_prev"] = b.hash_prev;
+        j["miner"] = b.miner;
         j["tx"] = b.tx;
     }
     void from_json(const json& j, block& b) {
         j.at("nonce").get_to(b.nonce);
         j.at("hash_prev").get_to(b.hash_prev);
+        j.at("miner").get_to(b.miner);
         j.at("tx").get_to(b.tx);
     }
 

@@ -63,8 +63,9 @@
 using namespace std;
 using json = nlohmann::json;
 
-int DIFFICULTY = 5;
-string DIFFICULTY_STRING = "00000";
+const int DIFFICULTY = 4;
+string DIFFICULTY_STRING = "0000";
+const float BLOCK_RWD = 5.0;
 vector <blockchain::node> known_peers;
 vector <blockchain::block> chain;
 vector <blockchain::transaction> unblocked_tx;
@@ -170,11 +171,12 @@ string getPublicKey(string prv_key){
 /**
  * returns true if the outputs[op_index] in chain[bid] has not
  * yet been referenced anywhere on the blockchain so far and therefore is unspent
+ * if op_index == -1 the miner is referenced
  * */
 bool check_if_unspent(int bid, int op_index){
     int l = chain.size();
     for (int i = bid; i<l; i++){
-        auto [nonce, hash_prev, tx] = chain[i];
+        auto [nonce, hash_prev, miner, tx] = chain[i];
         for(auto in : tx.inputs){
             if(in.ui.tx_id == bid && in.ui.op_index == op_index) return false;
         }
@@ -384,6 +386,7 @@ std::string gen_random(const int len) {
 }
 
 blockchain::block find_nonce(blockchain::transaction tx){
+    int chain_size = chain.size();
     auto prev_block = chain[chain.size()-1];
     json js_prev = prev_block;
     stringstream prev_block_stream;
@@ -396,10 +399,10 @@ blockchain::block find_nonce(blockchain::transaction tx){
     tx_stream << js_tx;
     string tx_str = tx_stream.str();
     int tries = 0;
-    while(true){
+    while(chain.size()==chain_size){
         string nonce = gen_random(64);
         tries++;
-        blockchain::block trial_blk= {nonce, hash_prev, tx};
+        blockchain::block trial_blk= {nonce, hash_prev, me.pub_key, tx};
         json trial_js = trial_blk;
         stringstream trial_stream;
         trial_stream << trial_js;
@@ -407,13 +410,17 @@ blockchain::block find_nonce(blockchain::transaction tx){
         if(sha256(trial).substr(64 - DIFFICULTY) == DIFFICULTY_STRING){
             cout<<"Nonce found! after "<<tries<<" attempts\n";
             cout<<"Hash of block is "<<sha256(trial)<<endl;
-            cout<<trial_js;
+            //cout<<trial_js;
+            cout<<"\n";
             return trial_blk;
         }
-        if(tries%10000==0){
-            cout<<"Nonces tried: "<<tries<<endl;
-        }
+        // if(tries%10000==0){
+        //     //cout<<"Nonces tried: "<<tries<<endl;
+        //     cout<<"*";
+        // }
     }
+    blockchain::block empty_blk = {"nons", "nohash", "nominer", tx}; //this is very ugly. 
+    return empty_blk;
 }
 
 bool verify_block(blockchain::block blk){
@@ -423,7 +430,7 @@ bool verify_block(blockchain::block blk){
     blk_stream << blk_js;
     string blk_str = blk_stream.str();
     if(sha256(blk_str).substr(64-DIFFICULTY) != DIFFICULTY_STRING) {
-        cout<<"incorrect nonce! invalid block\n";
+        //cout<<"incorrect nonce! invalid block\n";
         return false;
     }
     
@@ -432,15 +439,15 @@ bool verify_block(blockchain::block blk){
     blk_prev_stream << blk_prev;
     string blk_prev_str = blk_prev_stream.str();
     if(sha256(blk_prev_str) != blk.hash_prev) {
-        cout<<"incorrect prev hash! Invalid block\n";
+        //cout<<"incorrect prev hash! Invalid block\n";
         return false;
     }
 
     if(!verify_transaction(blk.tx)){
-        cout<<"invalid transaction! Invalid block\n";
+        //cout<<"invalid transaction! Invalid block\n";
         return false;
     }
-    cout<<"Block verified!\n";
+    cout<<"Block verified!\n> ";
     return true;
 }
 
@@ -448,18 +455,19 @@ void miner_func(){
     while(true){
         sleep(1); //unneccesary
         if(unblocked_tx.size()>0){
-            int chain_length = chain.size();
+            // cout<<"mining: ";
             blockchain::block newBlock = find_nonce(unblocked_tx[0]);
-            chain.push_back(newBlock);
-            cout<<"Block mined!\n";
-            //Later check if you actually mined first before broadcasting
-            json block_js = newBlock;
-            stringstream data_str;
-            data_str << block_js;
-            string data_s = data_str.str();
-            blockchain::envelope new_blk_env = {me, "NEW_BLOCK", data_s};
-            msgBroadcaster(new_blk_env);
-            unblocked_tx.erase(unblocked_tx.begin()); //just erase the tx that was mined
+            if(verify_block(newBlock)){ 
+                chain.push_back(newBlock);
+                cout<<"Block mined!"<<endl<<"> ";
+                json block_js = newBlock;
+                stringstream data_str;
+                data_str << block_js;
+                string data_s = data_str.str();
+                blockchain::envelope new_blk_env = {me, "NEW_BLOCK", data_s};
+                msgBroadcaster(new_blk_env);
+                unblocked_tx.erase(unblocked_tx.begin()); //just erase the tx that was mined
+            }
         }
     }
 }
@@ -480,10 +488,12 @@ void msgHandler(blockchain::envelope env){
     }
     else if(subject == "INIT_PEERS_REPLY"){
         vector <blockchain::node> new_peers = js.get<vector<blockchain::node>>();
-        for( auto n : new_peers){
-            known_peers.push_back(n);
+        for (auto p : new_peers){
+            known_peers.push_back(p);
         }
-        cout<<"Initialised peers!\n> ";
+        cout<<"Initialised peers!";
+        cout<<"\n> ";
+
     }
     else if(subject == "INIT_BLOCKS"){
         json js_reply = chain;
@@ -495,10 +505,13 @@ void msgHandler(blockchain::envelope env){
     }
     else if(subject == "INIT_BLOCKS_REPLY"){
         vector <blockchain::block> new_blocks = js.get<vector<blockchain::block>>();
+        chain.clear();
         for( auto n : new_blocks){
             chain.push_back(n);
         }
-        cout<<"Initialised blocks!\n> ";
+        cout<<"Initialised blocks!";
+        cout<<"\n> ";
+
     }
     else if(subject == "INTRO"){
         bool to_push = true;
@@ -509,22 +522,31 @@ void msgHandler(blockchain::envelope env){
     }
     else if(subject == "NEW_TX"){
         cout<<"heard new tx!\n";
-        cout<<data<<endl;
+        cout<<"\n> ";
+        //cout<<data<<endl;
         blockchain::transaction tx =  js.get<blockchain::transaction>();
         if(verify_transaction(tx)){
             unblocked_tx.push_back(tx);
         }
     }
     else if(subject == "NEW_BLOCK"){
-        cout<<"Heard new block!\n";
-        cout<<data<<endl;
+        //cout<<"Heard new block!\n";
+        //cout<<data<<endl;
         blockchain::block new_block = js.get<blockchain::block>();
         if(verify_block(new_block)) {
+            auto vfied_tx = new_block.tx;
+            for(int i = 0; i<unblocked_tx.size(); i++){
+                if(unblocked_tx[i].inputs[0].sig_r == new_block.tx.inputs[0].sig_r){
+                    unblocked_tx.erase(unblocked_tx.begin()+i);
+                    break;
+                }
+            }
             chain.push_back(new_block);
         }
     }
     else{
         cout<<"RECEIVED UNKNOWN MESSAGE: "<<subject<<endl;
+        cout<<"\n> ";
     }
 }
 
@@ -568,8 +590,22 @@ void listener_func(int sockfd){
 
 }
 
+float get_funds(string pub_key){
+    float total_amt = 0.0;
+    for (int i = 0; i<chain.size(); i++){
+        auto [nonce, hash_prev, miner, tx] = chain[i];
+        if(miner == pub_key && check_if_unspent(i, -1))  total_amt+= BLOCK_RWD;
+        for(int j = 0; j<tx.outputs.size(); j++){
+            if(tx.outputs[j].pub_key==pub_key && check_if_unspent(i, j)) {
+                total_amt+=tx.outputs[j].value;
+            }
+        }
+    }
+    return total_amt;
+}
+
 void commandHandler(string cmd){
-    if(cmd == "INIT_PEERS\n"){
+    if(cmd == "INIT_PEERS"){
         string ip, pub_key;
         int port;
         cout<<"IP of friend: ";
@@ -582,12 +618,11 @@ void commandHandler(string cmd){
         blockchain::envelope env = {me, "INIT_PEERS", "{}"};
         msgSender(env, to);
     }
-    else if(cmd == "LIST_PEERS\n"){
+    else if(cmd == "LIST_PEERS"){
         json js = known_peers;
         cout<<js<<endl;
-        cout<<"> ";
     }
-    else if(cmd == "GENESIS\n"){
+    else if(cmd == "GENESIS"){
         //You are the first node
         //Add genesis block to the chain
         blockchain::unsigned_input gen_in_unsigned = {-1, -1, "somepubkey", 25.0};
@@ -596,30 +631,43 @@ void commandHandler(string cmd){
         vector <blockchain::input> gen_ins = {gen_in};
         vector<blockchain::output> gen_outs = {gen_out};
         blockchain::transaction tx = {gen_ins, gen_outs};
-        blockchain::block gen_blk = {"nonsense", "nohash", tx};
+        blockchain::block gen_blk = {"nonsense", "nohash", "nominer", tx};
 
         chain.push_back(gen_blk);
         cout<<"Added genesis!\n";
     }
-    else if(cmd == "INIT_BLOCKS\n"){
+    else if(cmd == "INIT_BLOCKS"){
         //Must be called only AFTER init peers
         blockchain::node to = known_peers[1]; //this should be fine since there will be atleast one other peer
         blockchain::envelope env = {me, "INIT_BLOCKS", "{}"};
         msgSender(env, to);
     }
-    else if(cmd == "LIST_BLOCKS\n"){
+    else if(cmd == "LIST_BLOCKS"){
         json js = chain;
         cout<<js<<endl;
     }
-    else if(cmd == "BCAST_ID\n"){
+    else if(cmd == "NUM_BLOCKS"){
+        cout<<"Number of blocks: "<<chain.size()<<endl;
+    }
+    else if(cmd == "HASH_LAST"){
+        auto prev_block = chain[chain.size()-1];
+        json js_prev = prev_block;
+        stringstream prev_block_stream;
+        prev_block_stream << js_prev;
+        string prev_block_str = prev_block_stream.str();
+        string hash_prev = sha256(prev_block_str);
+        cout<<"hash: "<<hash_prev<<endl;
+    }
+    else if(cmd == "FUNDS"){
+        cout<<"funds: "<<get_funds(me.pub_key)<<endl;
+    }
+    else if(cmd == "BCAST_ID"){
         blockchain::envelope env = {me, "INTRO", "{}"};
         msgBroadcaster(env);
     }
     // This is a terrible way to make new transactions it is way too naive. Change it.
-    else if(cmd == "BCAST_TX\n"){
-        cout<<"Enter your public key: ";
-        string sender_pubkey;
-        cin>>sender_pubkey;
+    else if(cmd == "BCAST_TX"){
+        string sender_pubkey = me.pub_key;
         cout<<"Enter recepient public key: ";
         string rec_pubkey;
         cin>>rec_pubkey;
@@ -629,9 +677,19 @@ void commandHandler(string cmd){
         float total_amt = 0.0;
         vector<blockchain::input> new_unsigned_inputs;
         for (int i = 0; i<chain.size(); i++){
-            auto [nonce, hash_prev, tx] = chain[i];
+            auto [nonce, hash_prev, miner, tx] = chain[i];
+            //for every block
+            if(miner == sender_pubkey && check_if_unspent(i, -1)){
+                //If you are the miner, add block reward
+                total_amt += BLOCK_RWD;
+                blockchain::unsigned_input ui;
+                ui = {i, -1, sender_pubkey, BLOCK_RWD};
+                new_unsigned_inputs.push_back({ui, "unsigned", "unsigned"});
+            }
             for(int j = 0; j<tx.outputs.size(); j++){
+                //for every output in a block
                 if(tx.outputs[j].pub_key==sender_pubkey && check_if_unspent(i, j)) {
+                    //if the output credits me and is unspent add to inputs
                     total_amt+=tx.outputs[j].value;
                     blockchain::unsigned_input ui;
                     ui = {i, j, sender_pubkey, tx.outputs[j].value};
@@ -728,16 +786,13 @@ int main(int argc, char **argv) {
 
     while(1){
         cout<<"> ";       
-        char data[MAX];
-        bzero(&data, MAX);
-        fgets(data, 900, stdin);
-        // cin>>ip>>port>>data;
+        string cmd;
+        cin>>cmd;
         if(port==0){
             close(sockfd);
             exit(0);
         }
-        string command(data);
-        commandHandler(command);
+        commandHandler(cmd);
     }
     close(sockfd); 
     return 0;
