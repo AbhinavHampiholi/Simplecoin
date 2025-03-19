@@ -1,5 +1,5 @@
 # Simplecoin
-A simple node that can be run on multiple machines in the same network and maintain a blockchain of transactions
+A nice node that can be run on multiple machines in the same network and maintain a blockchain of transactions
 
 ## Dependencies
 - Linux
