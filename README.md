@@ -1,6 +1,8 @@
 # Simplecoin
 A simple node that can be run on multiple machines in the same network and maintain a blockchain of transactions
 
+This is strictly not meant for production!
+
 ## Dependencies
 - Linux
 - [OpenSSL](https://www.openssl.org/source/) 
