@@ -68,7 +68,7 @@ string DIFFICULTY_STRING = "0000";
 const float BLOCK_RWD = 5.0;
 vector <blockchain::node> known_peers;
 vector <blockchain::block> chain;
-vector <blockchain::transaction> unblocked_tx;
+
 blockchain::node me;
 string priv_key;
 
