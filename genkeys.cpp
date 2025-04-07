@@ -39,10 +39,6 @@ string getPublicKey(string prv_key){
     char* hexPKey = EC_POINT_point2hex( ecgroup, pub, POINT_CONVERSION_UNCOMPRESSED, NULL );
     string pub_key(hexPKey);
 
-    BN_free(prv);
-    EC_POINT_free(pub);
-    EC_GROUP_free(ecgroup); 
-    EC_KEY_free(eckey);
     return pub_key;
 }
 
