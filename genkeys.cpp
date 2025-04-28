@@ -12,9 +12,6 @@
 #include <openssl/obj_mac.h>
 #include <openssl/bio.h>
 #include <openssl/x509.h>
-#include <openssl/ecdsa.h>
-#include <openssl/pem.h>
-#include <openssl/bn.h>
 #include "node.hpp"
 #include "json.hpp"
 
