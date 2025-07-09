@@ -533,7 +533,7 @@ void msgHandler(blockchain::envelope env){
         //cout<<"Heard new block!\n";
         //cout<<data<<endl;
         blockchain::block new_block = js.get<blockchain::block>();
-        if(verify_block(new_block)) {
+            // we dont need to verify the block here, we do it in the miner_func
             auto vfied_tx = new_block.tx;
             for(int i = 0; i<unblocked_tx.size(); i++){
                 if(unblocked_tx[i].inputs[0].sig_r == new_block.tx.inputs[0].sig_r){
@@ -542,7 +542,7 @@ void msgHandler(blockchain::envelope env){
                 }
             }
             chain.push_back(new_block);
-        }
+        
     }
     else{
         cout<<"RECEIVED UNKNOWN MESSAGE: "<<subject<<endl;
