@@ -162,9 +162,6 @@ string getPublicKey(string prv_key){
     string pub_key(hexPKey);
 
     BN_free(prv);
-    EC_POINT_free(pub);
-    EC_GROUP_free(ecgroup); 
-    EC_KEY_free(eckey);
     return pub_key;
 }
 

@@ -12,7 +12,7 @@ private: `6D22AB6A1FD3FC1F5EBEDCA222151375683B733E9DDC9CA5B2485E202C55D25C`
 
 public: `04199216BE19D346E73195C9D2BC13D3B996124E287EBE433DB6B040B975192FB35653C7FBA678896902838121970314106A34719AAD96C868C6D160DE43A4B326`
 
-The block reward for each newly mined block is 5.0 Simps. 
+The block reward for each newly mined block is 5.0 Simps (lol). 
 
 ## Getting started
 Navigate to the project directory and run make.
